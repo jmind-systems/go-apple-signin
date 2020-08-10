@@ -69,10 +69,14 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 		}
 	}
 
-	if settings.TokenTTL == 0 {
-		client.TokenTTL = settings.TokenTTL
+	if settings.TokenTTL != nil {
+		client.TokenTTL = *settings.TokenTTL
 	} else {
 		client.TokenTTL = int64(defaultTokenTTL.Seconds())
+	}
+
+	if settings.RedirectURI != nil {
+		client.RedirectURI = *settings.RedirectURI
 	}
 
 	jwkSet, err := client.FetchPublicKeys()
