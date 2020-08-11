@@ -6,10 +6,11 @@ type ClientSettings struct {
 	HTTPClient  *http.Client
 	TokenTTL    int64
 	RedirectURI string
+	BaseURL     string
 
-	TeamID   string
-	ClientID string
-	KeyID    string
+	TeamID   string // Your Apple Team ID obtained from Apple Developer Account.
+	ClientID string // Your Service which enable sign-in-with-apple service.
+	KeyID    string // Your Secret Key ID obtained from Apple Developer Account.
 }
 
 type ClientOption interface {
@@ -43,5 +44,11 @@ func WithCredentials(teamID, clientID, keyID string) ClientOption {
 		settings.TeamID = teamID
 		settings.ClientID = clientID
 		settings.KeyID = keyID
+	})
+}
+
+func WithBaseURL(url string) ClientOption {
+	return ClientOptionFunc(func(settings *ClientSettings) {
+		settings.BaseURL = url
 	})
 }

@@ -25,14 +25,9 @@ import (
 const (
 	defaultRequestTimeout = time.Second * 10
 	defaultTokenTTL       = time.Hour
-)
 
-// Config for creating new Client.
-type Config struct {
-	TeamID   string // Your Apple Team ID obtained from Apple Developer Account.
-	ClientID string // Your Service which enable sign-in-with-apple service.
-	KeyID    string // Your Secret Key ID obtained from Apple Developer Account.
-}
+	defaultBaseURL = "https://appleid.apple.com/auth"
+)
 
 // Client for interaction with apple-id service.
 type Client struct {
@@ -42,6 +37,7 @@ type Client struct {
 	AESCert     interface{} // Your Secret Key Created By X509 package.
 	RedirectURI string      // Your RedirectURI config in apple website.
 	TokenTTL    int64
+	BaseURL     string
 
 	hc         *http.Client
 	publicKeys map[string]*rsa.PublicKey
@@ -69,10 +65,16 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 		}
 	}
 
-	if settings.TokenTTL == 0 {
+	if settings.TokenTTL != 0 {
 		client.TokenTTL = settings.TokenTTL
 	} else {
 		client.TokenTTL = int64(defaultTokenTTL.Seconds())
+	}
+
+	if settings.BaseURL != "" {
+		client.BaseURL = settings.BaseURL
+	} else {
+		client.BaseURL = defaultBaseURL
 	}
 
 	jwkSet, err := client.FetchPublicKeys()
@@ -96,7 +98,7 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 // FetchPublicKeys to verify the ID token signature.
 // https://developer.apple.com/documentation/sign_in_with_apple/fetch_apple_s_public_key_for_verifying_token_signature
 func (c *Client) FetchPublicKeys() (*JWKSet, error) {
-	resp, err := c.hc.Get("https://appleid.apple.com/auth/keys")
+	resp, err := c.hc.Get(c.BaseURL + "/keys")
 	if err != nil {
 		return nil, err
 	}
@@ -117,9 +119,12 @@ func (c *Client) FetchPublicKeys() (*JWKSet, error) {
 // LoadP8CertByByte use x509.ParsePKCS8PrivateKey to Parse cert file.
 func (c *Client) LoadP8CertByByte(data []byte) error {
 	block, _ := pem.Decode(data)
+	if block == nil {
+		return ErrBadCert
+	}
 	cert, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrBadCert, err)
 	}
 
 	c.AESCert = cert
@@ -148,7 +153,7 @@ func (c *Client) CreateCallbackURL(state string) string {
 	u.Add("state", state)
 	u.Add("scope", "name email")
 
-	return "https://appleid.apple.com/auth/authorize?" + u.Encode()
+	return c.BaseURL + "/authorize?" + u.Encode()
 }
 
 // Authenticate with auth token.
@@ -156,10 +161,6 @@ func (c *Client) CreateCallbackURL(state string) string {
 //   Response: https://developer.apple.com/documentation/sign_in_with_apple/tokenresponse
 //   Error: https://developer.apple.com/documentation/sign_in_with_apple/errorresponse
 func (c *Client) Authenticate(ctx context.Context, authCode string) (*TokenResponse, error) {
-	if c.AESCert == nil {
-		return nil, ErrMissingCert
-	}
-
 	signature, err := c.getSignature()
 	if err != nil {
 		return nil, err
@@ -196,10 +197,6 @@ func (c *Client) Authenticate(ctx context.Context, authCode string) (*TokenRespo
 //   Response: https://developer.apple.com/documentation/sign_in_with_apple/tokenresponse
 //   Error: https://developer.apple.com/documentation/sign_in_with_apple/errorresponse
 func (c *Client) Refresh(ctx context.Context, refreshToken string) (*TokenResponse, error) {
-	if c.AESCert == nil {
-		return nil, ErrMissingCert
-	}
-
 	signature, err := c.getSignature()
 	if err != nil {
 		return nil, err
@@ -227,7 +224,6 @@ func (c *Client) ParseUserIdentity(t string) (*UserIdentity, error) {
 
 	userIdentity := UserIdentity{}
 	if err := json.Unmarshal(body, &userIdentity); err != nil {
-
 		return nil, err
 	}
 
@@ -254,7 +250,7 @@ func (c *Client) ValidateToken(t string) error {
 
 func (c *Client) doRequest(ctx context.Context, v url.Values) (*TokenResponse, error) {
 	body := strings.NewReader(v.Encode())
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://appleid.apple.com/auth/token", body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/token", body)
 	if err != nil {
 		return nil, err
 	}
@@ -283,6 +279,10 @@ func (c *Client) doRequest(ctx context.Context, v url.Values) (*TokenResponse, e
 }
 
 func (c *Client) getSignature() (string, error) {
+	if c.AESCert == nil {
+		return "", ErrMissingCert
+	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.StandardClaims{
 		Issuer:    c.TeamID,
 		IssuedAt:  time.Now().Unix(),
