@@ -9,6 +9,9 @@ var (
 	// ErrMissingCert returned, if certificate is missing.
 	ErrMissingCert = errors.New("cert for client not set")
 
+	// ErrBadCert returned, if certificate is of bad format.
+	ErrBadCert = errors.New("cert for client is not in right format")
+
 	// ErrFetchPublicKey returned, if client failed fetching public key.
 	ErrFetchPublicKey = errors.New("can't fetch apple public key")
 
