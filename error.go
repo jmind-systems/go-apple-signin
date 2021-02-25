@@ -14,6 +14,9 @@ var (
 
 	// ErrInvalidToken returned, if token is not valid.
 	ErrInvalidToken = errors.New("invalid token")
+
+	// ErrRemoveUnavailable returned, if remove server is not available.
+	ErrRemoveUnavailable = errors.New("remove is not available")
 )
 
 // ErrorResponse is error object returned after an unsuccessful request.

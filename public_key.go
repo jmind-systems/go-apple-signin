@@ -15,7 +15,7 @@ type JWKSet struct {
 	Keys []JWK `json:"keys"`
 }
 
-// Get returnes JWK by it's unique ID.
+// Get returns JWK by it's unique ID.
 func (set JWKSet) Get(kid string) (*JWK, error) {
 	for _, key := range set.Keys {
 		if key.KeyID == kid {
