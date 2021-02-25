@@ -36,7 +36,25 @@ import (
 )
 
 func main() {
-    client := apple.NewClient()
+    // Pass credentials: team_id, client_id and key_id.
+    opts := apple.WithCredentials("x", "y", "z")
+
+    // Create the client.
+    client, err := apple.NewClient(opts)
+    if err != nil {
+        return nil, err
+    }
+
+    // Load your p8 key into the client.
+    if err := client.LoadP8CertByByte([]byte("")); err != nil {
+        return nil, err
+    }
+
+    // Now client is ready.
+    resp, err := p.client.Authenticate(ctx, "xxx-xxx")
+    if err != nil {
+        return nil, err
+    }
 }
 ```
 

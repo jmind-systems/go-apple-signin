@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -43,8 +44,8 @@ type Client struct {
 	RedirectURI string      // Your RedirectURI config in apple website.
 	TokenTTL    int64
 
-	hc         *http.Client
-	publicKeys map[string]*rsa.PublicKey
+	hc   *http.Client
+	keys sync.Map
 }
 
 // NewClient returns new client for interaction with apple-id service.
@@ -79,22 +80,22 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 		client.RedirectURI = *settings.RedirectURI
 	}
 
-	jwkSet, err := client.FetchPublicKeys()
-	if err != nil {
-		return nil, err
-	}
+	return &client, nil
+}
 
-	client.publicKeys = make(map[string]*rsa.PublicKey)
+// SetPublicKeys gives ability to manually set the public keys.
+func (c *Client) SetPublicKeys(jwkSet *JWKSet) error {
+	c.keys = sync.Map{}
 	for _, k := range jwkSet.Keys {
 		pubKey, err := NewPublicKey(k)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
-		client.publicKeys[k.KeyID] = pubKey
+		c.keys.Store(k.KeyID, pubKey)
 	}
 
-	return &client, nil
+	return nil
 }
 
 // FetchPublicKeys to verify the ID token signature.
@@ -102,7 +103,7 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 func (c *Client) FetchPublicKeys() (*JWKSet, error) {
 	resp, err := c.hc.Get("https://appleid.apple.com/auth/keys")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", ErrRemoveUnavailable, err)
 	}
 	defer resp.Body.Close()
 
@@ -110,7 +111,7 @@ func (c *Client) FetchPublicKeys() (*JWKSet, error) {
 		return nil, ErrFetchPublicKey
 	}
 
-	jwkSet := JWKSet{}
+	var jwkSet JWKSet
 	if err := json.NewDecoder(resp.Body).Decode(&jwkSet); err != nil {
 		return nil, err
 	}
@@ -239,11 +240,6 @@ func (c *Client) ParseUserIdentity(t string) (*UserIdentity, error) {
 }
 
 func (c *Client) ValidateToken(t string) error {
-	if c.publicKeys == nil {
-		_, err := c.FetchPublicKeys()
-		return err
-	}
-
 	token, err := jwt.Parse(t, c.keyFunc)
 	if err != nil {
 		return err
@@ -314,10 +310,25 @@ func (c *Client) keyFunc(t *jwt.Token) (interface{}, error) {
 		return nil, errors.New("jwt: wrong kid")
 	}
 
-	publicKey, ok := c.publicKeys[kid]
-	if !ok {
-		return nil, fmt.Errorf("unknown public key id: %s", kid)
+	v, ok := c.keys.Load(kid)
+	if ok {
+		return v.(*rsa.PublicKey), nil
 	}
 
-	return publicKey, nil
+	// Fetch and update public keys if it does not exist.
+	jwkSet, err := c.FetchPublicKeys()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.SetPublicKeys(jwkSet); err != nil {
+		return nil, err
+	}
+
+	v, ok = c.keys.Load(kid)
+	if ok {
+		return v.(*rsa.PublicKey), nil
+	}
+
+	return nil, ErrInvalidToken
 }
